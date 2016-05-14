@@ -1,169 +1,346 @@
 #include "MK64F12.h"
-/*
-******************************************************************************************************
-* Chip        : MAX7219
-* Author      : Burak HANÇERLI
-* Mail        : bhancerli@gmail.com
-* Description : MAX7219 LED Display Driver Routines - v1.1
-*   
-* 
-*  The Maxim MAX7219 is a led display driver. It can control up to 64 individual leds or eight
-*  7-segment-display.
-*
-*  Max7912 uses 3-wire to communicate with microcontroller.
-*    - DATA   : Used to transmit data.
-*    - CLOCK  : Used to generate clock signal which is required for transmitting each bite of data.
-*    - LOAD   : Used to load data to the Max7913's Dual-Port SRam.
-*                 
-*
-*
-*  Advantages of Max7219 :
-*  - Adjustable intensity. (More or less bright leds)
-*  - Shutdown mode (much less power consumption)
-*  - Test mode (To see if digits are working or not)
-*  - Adjustable digit number. (1 to 8 seven-segment-display)
-*  - Changeable decode mode. (codeB-decode-mode or no-decode-mode)
-*      (Look over datasheet for more detailed information)
-*
-*
-*  DESCRIPTION OF USER FUNCTIONS
-* -------------------------------
-*  init7219()                      : Required for initialize MAX7219. This function have has to be called before calling any function.
-*  write7219(digit, data)          : Writes data to the specified digit number. If Decimal Point needed on any digit, just add
-                                     128 to the data.
-                                     For example : write7219(1,3)   = writes "3"  to first digit.
-                                                   write7219(1,131) = writes "3." to first digit.
-*  shutdown7219(operatingMode)     : Set operatingMode = 0 to Shutdown mode
-*                                    Set operatingMode = 1 to Normal mode
-*  decode7219(decodeMode)          : Sets digit-decode mode. code-B or no-decode mode. Look up datasheet for detailed instructions.
-*                                    For example, if user sets decodeMode = 4, (4=0b00000100), then 3. digit will be
-*                                    decoded as code-B algorithm, but other pins don't have any decode mode.
-*  brightness7219(brightnessLevel) : Sets brightness level of digits.
-*                                    brightnessLevel = 0  ; minimum brightness level
-*                                    brightnessLevel = 15 ; maximum brigthness level
-*                                   
-*  scanLimit7219(totalDigitNumber) : Sets number of connected digits to the MAX7219. When init7912() function is called,
-                                     number of digit will be setted to 4 as default.
-                                     
-*  test7219(testMode)              : Sets 7-segment-display test-mode on or off.
-                                     testMode = 0 ; normal operation mode
-                                     testMode = 1 ; display test mode
-                                     
-** THIS LIBRARY CAN BE USED, DEVELOPED OR SHARED WITH REFERRING THE AUTHOR.                                   
-******************************************************************************************************/
-
-
-// CONSTANTS //
-// - Connection Pins (CHANGE THESE PINS AS YOU WISH)
-#define CLK       PTD
-#define LOAD      PTD
-#define DATA      PTD
+#include <stdlib.h>
+#include "encoding.h"
 
 // - Mode Selection
-#define decode 0x09
-#define brightness 0x0A
-#define scanLimit 0x0B
-#define shutDown 0x0C
-#define dispTest 0x0F
-
-// Firt 4 bites (not used generally)
-#define firstBites 0x0
+#define no_decode 0x09
+#define scan_limit 0x0B
+#define shut_down 0x0C
 
 // Wait function
-#define wait delay_ms(1)
+#define DATA_0()  PTD->PCOR |= (1 << 2);
+#define DATA_1()  PTD->PSOR |= (1 << 2);
 
-#define DATA_0()  DATA->PCOR |= (1 << 2);
-#define DATA_1()  DATA->PSOR |= (1 << 2);
+#define LOAD_0()  PTD->PCOR |= (1 << 0);
+#define LOAD_1()  PTD->PSOR |= (1 << 0);
 
-#define LOAD_0()  LOAD->PCOR |= (1 << 0);
-#define LOAD_1()  LOAD->PSOR |= (1 << 0);
+#define CLK_0()   PTD->PCOR |= (1 << 1);
+#define CLK_1()   PTD->PSOR |= (1 << 1);
 
-#define CLK_0()   CLK->PCOR |= (1 << 1);
-#define CLK_1()   CLK->PSOR |= (1 << 1);
+typedef struct overflow_queue {
+  int col;
+  struct overflow_queue* next;
+} backlog;
 
-long serialData=0;
+typedef struct display_queue {
+  char character;
+  struct display_queue* next;
+} queue;
 
+void setup(void);
+void init(void);
+void clear(void);
+void sendBit(int);
+void sendWord(short);
+void sendChars(char, char);
+void lightAll(void);
+void display(int);
 void delay_ms(int);
-int get_bit(long, int);
-void output_bit(int);
-void init7219(void);
-void shutdown7219(int);
-void write7219(unsigned char, int);
+
+void add_char(int);
+void display_frame();
+void scroll_display(int);
+
+//current queue of letters to show
+queue* current = NULL;
+int current_size = 0;
+
+//buffer queue, max 16
+queue* buffer = NULL;
+int buffer_size = 0;
+
+//unbounded backlog buffer
+backlog* extra = NULL;
+
 int main() {
-  long row = 0x02ff;
-  init7219();
-  shutdown7219(1); //try without this line as well
-  while(1) {
-    write7219(long,);
+  int i;
+  //setup port pins as GPIO output
+  setup();
+  //configure the LED matrix
+  init();
+  add_char(32);
+  add_char(72);
+  add_char(69);
+  add_char(76);
+  add_char(76);
+  add_char(79);
+  add_char(32);
+  add_char(87);
+  add_char(79);
+  add_char(82);
+  add_char(76);
+  add_char(68);
+  add_char(33);
+  for(i=0; i< 100; i++) {
+    add_char(i);
   }
+  delay_ms(100);
+  lightAll();
+  delay_ms(100);
+  clear();
+  delay_ms(100);
+  scroll_display(20);
+  while(1);
 }
 
-void clock7219() // clock (CLK) pulse
-{
-   CLK_0();
-   wait;
-   CLK_1();
+void init(void) {
+  //set decode mode to no-decode
+  sendWord(0x0900);
+  //scan limit equal to all 8 rows
+  sendWord(0x0B07);
+  //clear the board initially
+  clear();
+  //shutdown mode off
+  sendWord(0x0C01);
 }
 
-void load7219()  // load (LOAD) pulse
-{
-   LOAD_0();
-   wait;
-   LOAD_1();
+void sendBit(int value){
+  if(value == 1){
+    DATA_1();
+  }
+  else{
+    DATA_0();
+  }
+  //rising clock edge
+  PTD->PSOR |= (1 << 1);
+  //delay_ms(1);
+  //clock to 0
+  PTD->PCOR |= (1 << 1);
 }
 
-void send7219(char data) // send 16 bit data word to the 7219
-{
-
-   int count;
-   for (count=0; count<16; ++count)
-   {
-      output_bit(get_bit(data, count)); // set data (DIN) level
-      clock7219(); // clock data in
-   }
-   load7219(); // latch the last 16 bits clocked
+void sendWord(short data) {
+  int i;
+  int j;
+  //Drive CS to 0
+  LOAD_0();
+  for(i=15;i>=0;i--) {
+    j = (data >> i) & 1;
+    sendBit(j);
+  }
+  //CS back to 1; on the positive rising edge the
+  //MAX7219 will latch the data in the shift registers
+  LOAD_1();
 }
 
-void dataMaker(unsigned char mode, int dataIncoming) // Standart data package function
-{
-   serialData=firstBites;
-   serialData<<=4;
-   serialData|=mode;
-   serialData<<=8;
-   serialData|=dataIncoming;
-   send7219(serialData);
+void sendChars(char add, char reg) {
+  int i;
+  int j;
+  //Drive CS to 0
+  LOAD_0();
+  for(i=7;i>=0;i--) {
+    j = (add >> i) & 1;
+    sendBit(j);
+  }
+  for(i=7;i>=0;i--) {
+    j = (reg >> i) & 1;
+    sendBit(j);
+  }
+  //CS back to 1; on the positive rising edge the
+  //MAX7219 will latch the data in the shift registers
+  LOAD_1();
 }
 
-void write7219(unsigned char digit, int data) // Send data to digits
-{
-   dataMaker(digit, data);
+void clear() {
+  sendWord(0x0100);
+  sendWord(0x0200);
+  sendWord(0x0300);
+  sendWord(0x0400);
+  sendWord(0x0500);
+  sendWord(0x0600);
+  sendWord(0x0700);
+  sendWord(0x0800);
 }
 
-void init7219()
+void lightAll() {
+  sendWord(0x01FF);
+  sendWord(0x02FF);
+  sendWord(0x03FF);
+  sendWord(0x04FF);
+  sendWord(0x05FF);
+  sendWord(0x06FF);
+  sendWord(0x07FF);
+  sendWord(0x08FF);
+}
+void setup(void)
 {
-   dataMaker(shutDown, 1);     // No-Shutdown mode. Normal Operation mode.
-   dataMaker(decode, 15);      // All digits are programmed as code-B decode mode.
-   dataMaker(scanLimit, 4);    // Total digit number set to 4.
-   dataMaker(brightness, 15);  // Full brightness.
+  //clock port D
+  SIM->SCGC5 |= SIM_SCGC5_PORTD_MASK;
+
+  //set up the pins of port D as GPIO
+  PORTD->PCR[0] = PORT_PCR_MUX(001);
+  PORTD->PCR[1] = PORT_PCR_MUX(001);
+  PORTD->PCR[2] = PORT_PCR_MUX(001);
+   
+  //enable the pins as output
+  PTD->PDDR |= (1 << 0);
+  PTD->PDDR |= (1 << 1);
+  PTD->PDDR |= (1 << 2);
+
+  LOAD_0();
+  CLK_0();
 }
 
 void delay_ms(int ms)
 {
   int i;
-  for(i=0; i < ms * 20970; i++);
+  for(i=0; i < ms * 20971; i++);
 }
 
-int get_bit(char data, int num) 
-{
-  return (data << num) & 1;
-}
-
-void output_bit(int bit)
-{
-  if(bit) {
-    DATA_1();
-  }
+/* Add to the tail of queue */
+void add_to_tail(queue** head_ref, queue* p) {
+  /* Get pointer to the current head node */
+  queue* current = *head_ref;
+  
+  /* If queue is currently empty, replace it with the new node */
+  if (current == NULL) { *head_ref = p; }
+  
+  /* Otherwise, find the end of the list and append the new node */
   else {
-    DATA_0();
+    while (current->next != NULL) { current = current->next; }
+    /* At this point, current points to the last node in the list */
+    current->next = p;
+  }
+}
+
+/* Remove and return (pop) head of queue */
+queue* take_from_head(queue** head_ref) {
+  /* We want to return the current head */
+  queue* result = *head_ref;
+  
+  /* Remove the head, unless the queue is empty */
+  if (result != NULL) {
+    *head_ref = result->next; /* New head is the next in queue */
+    result->next = NULL;    /* Removed no longer points to queue */
+    return result;   /* return character */
+  }
+  return NULL;
+}
+
+/* Add to the tail of queue */
+void buffer_extra(backlog** head_ref, backlog* p) {
+  /* Get pointer to the current head node */
+  backlog* current = *head_ref;
+  
+  /* If queue is currently empty, replace it with the new node */
+  if (current == NULL) { *head_ref = p; }
+  
+  /* Otherwise, find the end of the list and append the new node */
+  else {
+    while (current->next != NULL) { current = current->next; }
+    /* At this point, current points to the last node in the list */
+    current->next = p;
+  }
+}
+
+/* Remove and return (pop) head of queue */
+backlog* take_from_extra(backlog** head_ref) {
+  /* We want to return the current head */
+  backlog* result = *head_ref;
+  
+  /* Remove the head, unless the queue is empty */
+  if (result != NULL) {
+    *head_ref = result->next; /* New head is the next in queue */
+    result->next = NULL;    /* Removed no longer points to queue */
+    return result;   /* return character */
+  }
+  return NULL;
+}
+
+void display(int col) {
+  int i;
+  for(i=0; i < 8; i++) {
+    sendChars(i+1, encoding[col][i]);
+  }
+}
+
+void add_char(int col) {
+  int i;
+  if(buffer_size >= 8 || extra != NULL) {
+    backlog* extra_node = malloc(sizeof(backlog));
+    if(extra_node == NULL) {
+      return;
+    }
+    extra_node->col = col;
+    extra_node->next = NULL;
+    buffer_extra(&extra, extra_node);
+    return;
+  }
+  
+  for(i=0; i<8; i++) {
+    //create and initialize our new queue node
+    queue* new_node = malloc(sizeof(queue));
+    if(new_node == NULL) {
+      return;
+    }
+    
+    new_node->character = encoding[col][i];
+    new_node->next = NULL;
+    
+    //check if current queue has room
+    if(current_size < 8) {
+      add_to_tail(&current, new_node);
+      current_size++;
+    }
+    else {
+      add_to_tail(&buffer, new_node);
+      buffer_size++;
+    }
+  }
+}
+
+void naive_add(int col) {
+  int i;
+  
+  for(i=0; i<8; i++) {
+    //create and initialize our new queue node
+    queue* new_node = malloc(sizeof(queue));
+    if(new_node == NULL) {
+      return;
+    }
+    
+    new_node->character = encoding[col][i];
+    new_node->next = NULL;
+    
+    //check if current queue has room
+    if(current_size < 8) {
+      add_to_tail(&current, new_node);
+      current_size++;
+    }
+    else {
+      add_to_tail(&buffer, new_node);
+      buffer_size++;
+    }
+  }
+}
+
+void display_frame() {
+  int i = 0;
+  queue* temp = current;
+  for(i=0; i<8; i++) {
+    if(temp != NULL) {
+      sendChars(i+1, temp->character);
+      temp = temp->next;
+    }
+    else {
+      sendChars(i+1, 0x00);
+    }
+  }
+}
+
+void scroll_display(int delay) {
+  while(1) {
+    display_frame();
+    free(take_from_head(&current));
+    current_size--;
+    if(buffer != NULL) {
+      add_to_tail(&current, take_from_head(&buffer));
+      current_size++;
+    }
+    else if(extra != NULL) {
+      naive_add(take_from_extra(&extra)->col);
+      add_to_tail(&current, take_from_head(&buffer));
+      current_size++;
+    }
+    delay_ms(delay);
   }
 }
