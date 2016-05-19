@@ -29,14 +29,15 @@ void UARTsetup() {
 void Pit_Setup() {
 	SIM->SCGC6 = SIM_SCGC6_PIT_MASK;     //Enable the clock to the PIT module
 	PIT_MCR = 0x00;										   //Enables timer
-	PIT->CHANNEL[0].LDVAL = 1;   //Set the load value of the zeroth PIT 
+	PIT->CHANNEL[0].LDVAL = 20970000;   //Set the load value of the zeroth PIT 
 	PIT->CHANNEL[0].TCTRL  = 3;
 	NVIC_EnableIRQ(PIT0_IRQn);
 }
 
 void PIT0_IRQHandler(void) {
+	char d_reg;
 	PIT->CHANNEL[0].TFLG |= 0x1;		 		 //Have to reset the flag
-	char d_reg = uart_getchar();
+	 d_reg = uart_getchar();
 	if(d_reg != 0) {
 		add_char(d_reg);
 		UART4_D = 0;

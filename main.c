@@ -344,7 +344,9 @@ void scroll_display(int delay) {
       current_size++;
     }
     else if(extra != NULL) {
-      naive_add(take_from_extra(&extra)->col);
+      backlog* temp = take_from_extra(&extra);
+			naive_add(temp->col);
+			free(temp);
       add_to_tail(&current, take_from_head(&buffer));
       current_size++;
     }
