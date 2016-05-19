@@ -36,8 +36,11 @@ void Pit_Setup() {
 
 void PIT0_IRQHandler(void) {
 	PIT->CHANNEL[0].TFLG |= 0x1;		 		 //Have to reset the flag
-	uart_getchar();
-	//UART4_D = 0;
+	char d_reg = uart_getchar();
+	if(d_reg != 0) {
+		add_char(d_reg);
+		UART4_D = 0;
+	}
 }
 
 int uart_getchar() {
