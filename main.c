@@ -40,7 +40,7 @@ void delay_ms(int);
 
 void add_char(int);
 void display_frame();
-void scroll_display(int);
+void scroll_display();
 
 //current queue of letters to show
 queue* current = NULL;
@@ -53,6 +53,9 @@ int buffer_size = 0;
 //unbounded backlog buffer
 backlog* extra = NULL;
 
+//global speed variable
+int speed = 15;
+
 int main() {
   int i;
   //setup port pins as GPIO output
@@ -61,31 +64,13 @@ int main() {
   init();
   //setup the bluetooth receiver
   UARTsetup();
-  Pit_Setup();
-/*
-  add_char(32);
-  add_char(72);
-  add_char(69);
-  add_char(76);
-  add_char(76);
-  add_char(79);
-  add_char(32);
-  add_char(87);
-  add_char(79);
-  add_char(82);
-  add_char(76);
-  add_char(68);
-  add_char(33);
-  for(i=0; i< 100; i++) {
-    add_char(i);
-  }
-*/
+
   delay_ms(100);
   lightAll();
   delay_ms(100);
   clear();
   delay_ms(100);
-  scroll_display(20);
+  scroll_display();
   
   while(1);
 }
@@ -191,6 +176,20 @@ void delay_ms(int ms)
 {
   int i;
   for(i=0; i < ms * 20971; i++);
+}
+
+void poll(int ms) {
+	int i;
+	for(i=0; i < ms * 200; i++) {
+		if(uart_getchar()) {
+			if(UART4_D >= 20) {
+				add_char(UART4_D);
+			}
+			else {
+				speed = 20 - UART4_D;
+			}
+		}
+	}
 }
 
 /* Add to the tail of queue */
@@ -334,7 +333,7 @@ void display_frame() {
   }
 }
 
-void scroll_display(int delay) {
+void scroll_display() {
   while(1) {
     display_frame();
     free(take_from_head(&current));
@@ -350,6 +349,6 @@ void scroll_display(int delay) {
       add_to_tail(&current, take_from_head(&buffer));
       current_size++;
     }
-    delay_ms(delay);
+    poll(speed);
   }
 }

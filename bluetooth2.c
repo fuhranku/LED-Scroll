@@ -26,38 +26,21 @@ void UARTsetup() {
 	UART4_C2 |=(UART_C2_TE_MASK |UART_C2_RE_MASK);
 }
 
-void Pit_Setup() {
-	SIM->SCGC6 = SIM_SCGC6_PIT_MASK;     //Enable the clock to the PIT module
-	PIT_MCR = 0x00;										   //Enables timer
-	PIT->CHANNEL[0].LDVAL = 20970000;   //Set the load value of the zeroth PIT 
-	PIT->CHANNEL[0].TCTRL  = 3;
-	NVIC_EnableIRQ(PIT0_IRQn);
-}
-
-void PIT0_IRQHandler(void) {
-	char d_reg;
-	PIT->CHANNEL[0].TFLG |= 0x1;		 		 //Have to reset the flag
-	 d_reg = uart_getchar();
-	if(d_reg != 0) {
-		add_char(d_reg);
-		UART4_D = 0;
-	}
-}
-
 int uart_getchar() {
 	int temp = 0;
 	
-	while(!UART4_RCFIFO && temp < 20970) {				//waits until something in queue
+	while(!UART4_RCFIFO && temp < 100) {				//waits until something in queue
+		//large enough to capture all letters
+		//small enough to not wait too long 
 		temp ++;					//temp can be modified accordingly
+		//return 1;
 	}
 	
-	if(UART4_RCFIFO)
+	if(UART4_RCFIFO) {
 		count ++;
+		return 1;
+	}
 	
 	/* Return the 8-bit data from the receiver */
-	return UART4_D;
-}
-
-int getD() {
-	return UART4_D;
+	return 0;
 }
