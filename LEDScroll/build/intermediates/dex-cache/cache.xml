@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<items version="2" >
+
+    <item
+        jar="/Users/frankchan/AndroidStudioProjects/LEDScroll/app/build/intermediates/incremental-classes/debug/instant-run-bootstrap.jar"
+        jumboMode="true"
+        revision="23.0.3"
+        sha1="55fc82ca25bea431bfe9cebc22031509d3ed76c7">
+        <dex dex="/Users/frankchan/AndroidStudioProjects/LEDScroll/app/build/intermediates/pre-dexed/debug/instant-run-bootstrap_6ffc6540799fce7c5300130514422bbe43b73529.jar" />
+    </item>
+
+</items>
